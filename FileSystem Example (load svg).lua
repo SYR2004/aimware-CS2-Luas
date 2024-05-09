@@ -73,10 +73,10 @@ callbacks.Register("Draw", function()
         return
     end
 
-    local ScreenPosition = { draw.GetScreenSize() }
+    local vecScreenPosition = { draw.GetScreenSize() }
     local vecCenterBoundBox = {
-        (ScreenPosition[1] / 2) - (arrIcon.width / 2), (ScreenPosition[2] / 2) - (arrIcon.height / 2),
-        (ScreenPosition[1] / 2) + (arrIcon.width / 2), (ScreenPosition[2] / 2) + (arrIcon.height / 2)
+        (vecScreenPosition[1] / 2) - (arrIcon.width / 2), (vecScreenPosition[2] / 2) - (arrIcon.height / 2),
+        (vecScreenPosition[1] / 2) + (arrIcon.width / 2), (vecScreenPosition[2] / 2) + (arrIcon.height / 2)
     }
 
     draw.SetTexture(arrIcon.img);
