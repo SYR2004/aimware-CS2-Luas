@@ -10,7 +10,7 @@ local IFileSystem = (function()
         return nil
     end
 
-    return  fnGetFileSystem()
+    return fnGetFileSystem()
 end)()
 
 assert(ffi, "example error: ffi is not open, please open ffi")
