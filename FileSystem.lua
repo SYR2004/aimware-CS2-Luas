@@ -89,8 +89,8 @@ return setmetatable({
                             return
                         end
 
-                        self.bAvailable = false
                         this:CallVFunc(14, "void(__thiscall*)(void*, void*)", self:Get())
+                        self.bAvailable = false
                     end
                 }
             })
