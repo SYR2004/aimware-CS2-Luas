@@ -14,7 +14,7 @@ local IFileSystem = (function()
 end)()
 
 assert(ffi, "example error: ffi is not open, please open ffi")
-assert(IFileSystem, [[example error: IFileSystem is not loaded, please copy and put "File System.lua" inside aimware lua folder]])
+assert(IFileSystem, [[example error: IFileSystem is not loaded, please copy source and rename "File System.lua" and put inside aimware lua folder]])
 local function FindSignature(pBase, nDataSize, arrSignature)
     local pData = ffi.cast("uint8_t*", pBase)
     for nIndex = 0, nDataSize do
