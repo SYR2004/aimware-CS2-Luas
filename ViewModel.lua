@@ -1,10 +1,4 @@
--- SYR1337 Editor 2024.9.8
--- add error trace
--- some struct reclass
--- fix hook thread unclose
--- add threads resume with unhook
--- add aspect ratio stored with unload
--- rework view/viewmodel fov, aspect ratio..etc
+-- SYR1337
 xpcall(function()
     assert(ffi, "custom viewmodel error: ffi is not open, please open ffi")
     if not pcall(ffi.sizeof, "struct CGameTrace") then
@@ -102,7 +96,8 @@ xpcall(function()
     local bSetup = false
     local arrThreads = {}
     local flBackupAspectRatio = 0
-    local bBackupAspectRatio = false
+    local bStoredAspectRatio = false
+    local bStoredViewModelScale = false
     local NULLPTR = ffi.cast("void*", 0)
     local vecCameraPosition = Vector3(0, 0, 0)
     local INVALID_HANDLE = ffi.cast("void*", - 1)
@@ -114,10 +109,12 @@ xpcall(function()
     local pViewModelGroup = gui.Groupbox(pViewModelTab, "Customized", 0, 0, 630, 200)
     gui.Text(pViewModelGroup, "Author: SYR1337")
 
+    local pRemoveViewModelShake = gui.Checkbox(pViewModelGroup, "__RemoveViewModelShake", "Remove View Model Shake", false)
     local pCustomViewModel = gui.Checkbox(pViewModelGroup, "__CustomViewModel", "Custom View Model", false)
-    local pViewModelX = gui.Slider(pViewModelGroup, "__ViewModelX", "View Model X", 0, - 400, 400, 0.01)
-    local pViewModelY = gui.Slider(pViewModelGroup, "__ViewModelY", "View Model Y", 0, - 400, 400, 0.01)
-    local pViewModelZ = gui.Slider(pViewModelGroup, "__ViewModelZ", "View Model Z", 0, - 400, 400, 0.01)
+    local pViewModelX = gui.Slider(pViewModelGroup, "__ViewModelX", "View Model X", 10, - 400, 400, 0.01)
+    local pViewModelY = gui.Slider(pViewModelGroup, "__ViewModelY", "View Model Y", 10, - 400, 400, 0.01)
+    local pViewModelZ = gui.Slider(pViewModelGroup, "__ViewModelZ", "View Model Z", - 10, - 400, 400, 0.01)
+    local pViewModelScale = gui.Slider(pViewModelGroup, "__ViewModelScale", "View Model Scale", 1, 0, 1, 0.01)
 
     local pCustomFov = gui.Checkbox(pViewModelGroup, "__CustomFov", "Custom Fov", false)
     local pViewFov = gui.Slider(pViewModelGroup, "__ViewFov", "View Fov", 90, 0, 180, 0.01)
@@ -133,20 +130,21 @@ xpcall(function()
     local pCameraDistance = gui.Slider(pViewModelGroup, "__SmoothCameraDistance", "Smooth Camera Distance", 100, 32, 200, 1)
 
     local fnGetMatrixForView = assert(mem.FindPattern("client.dll", "40 53 48 81 EC ?? ?? ?? ?? 49 8B C1"), "custom viewmodel error: outdated signature")
-    -- local fnRenderStart = assert(mem.FindPattern("client.dll", "48 89 5C ?? ?? 48 89 ?? ?? ?? 56 57 41 56 48 83 EC ?? 4C 8B F1 48 8D ?? 24 90"), "custom viewmodel error: outdated signature")
+    local fnCalcViewModelShake = assert(mem.FindPattern("client.dll", "48 89 5C 24 20 55 41 56 41 57 48 81"), "custom viewmodel error: outdated signature")
     local fnOverrideView = assert(mem.FindPattern("client.dll", "48 89 5C 24 ?? 48 89 6C 24 ?? 48 89 74 24 ?? 57 41 56 41 57 48 83 EC ?? 48 8B FA E8"), "custom viewmodel error: outdated signature")
     local fnGetViewModel = assert(mem.FindPattern("client.dll", "48 89 5C 24 ?? 48 89 ?? ?? ?? 48 89 ?? ?? ?? 57 48 83 ?? ?? ?? 8B E8 48 8B DA 48 8B F1"), "custom viewmodel error: outdated signature")
     local fnGetClientEntity = ffi.cast("void*(__fastcall*)(void*, int)", assert(mem.FindPattern("client.dll", "81 FA ?? ?? ?? ?? 77 36 8B C2 C1 F8 09 83 F8 3F 77 2C 48 98"), "custom viewmodel error: outdated signature"))
     local fnCreateFilter = ffi.cast("void(__fastcall*)(struct CTraceFilter&, void*, uint64_t, uint8_t, uint16_t)", assert(mem.FindPattern("client.dll", "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 0F B6 41 37 33"), "custom viewmodel error: outdated signature"))
     local fnTraceShape = ffi.cast("bool(__fastcall*)(void*, struct CTraceRay*, struct Vector*, struct Vector*, struct CTraceFilter*, struct CGameTrace*)", assert(mem.FindPattern("client.dll", "48 89 5C 24 10 48 89 74 24 18 48 89 7C 24 20 48 89 4C 24 08 55 41 54 41 55 41 56 41 57 48 8D AC 24 20 E0 FF"), "custom viewmodel error: invalidate signature"))
     local IViewRender = (function()
-        -- 函数签名 (alloc func signature): "48 83 EC 28 48 8D 0D 25 33 91 01 E8 50 45 6F 00"
-        local pViewRender = assert(mem.FindPattern("client.dll", "48 8D 0D 25 33 91 01 E8 50 45 6F"), "custom viewmodel error: outdated signature")
+        -- #xref "CSGOFrameUpdate" "CancelConnectToServer"
+        local pViewRender = assert(mem.FindPattern("client.dll", "48 8D ?? ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8D ?? ?? ?? ?? 01 48 83 C4 28 E9 ?? ?? ?? ?? 4C 8B DC 48 83 ?? ?? ?? ?? ?? ?? ?? 48 8D 05 15"), "custom viewmodel error: outdated signature")
         return ffi.cast("struct CViewRender*", pViewRender + 7 + ffi.cast("int*", pViewRender + 3)[0])
     end)()
 
     local IEngineTrace = (function()
-        local pEngineTrace = assert(mem.FindPattern("client.dll", "4C 8B 3D 4B 41 57 01 24 C9 0C 49 66 0F 7F 45"), "custom viewmodel error: outdated signature")
+        -- #xref "const CTraceFilter::`vftable'"
+        local pEngineTrace = assert(mem.FindPattern("client.dll", "4C ?? ?? ?? ?? 57 01 24 C9 0C 49 66 0F 7F 45"), "custom viewmodel error: outdated signature")
         return ffi.cast("void**", pEngineTrace + 7 + ffi.cast("int*", pEngineTrace + 3)[0])[0]
     end)()
 
@@ -207,12 +205,46 @@ xpcall(function()
         while (arrTraceData.nMaxTraced >= arrTraceData.nMaximizedIndex and arrTraceData.flFraction < 1 and ((arrTraceData.pTraceEntity and fnSkipCallBack(
             (function() return bit.band(GetBaseHandle(arrTraceData.pTraceEntity), 0x7FFF) end)()
         )) or arrTraceData.vecImpact == vecSource)) do
-            local pEntity = arrTraceData.pTraceEntity ~= NULLPTR and bit.band(GetBaseHandle(arrTraceData.pTraceEntity), 0x7FFF) or nil
+            local pEntity = (arrTraceData.pTraceEntity and arrTraceData.pTraceEntity ~= NULLPTR) and bit.band(GetBaseHandle(arrTraceData.pTraceEntity), 0x7FFF) or nil
             local flFraction, pTraceEntity, vecImpact = TraceLineImpact(arrTraceData.vecImpact, vecDestination, pEntity)
             arrTraceData.flFraction, arrTraceData.pTraceEntity, arrTraceData.vecImpact, arrTraceData.nMaximizedIndex = flFraction, pTraceEntity, vecImpact, arrTraceData.nMaximizedIndex + 1
         end
 
         return (arrTraceData.vecImpact - vecSource):Length() / (vecDestination - vecSource):Length()
+    end
+
+    local function SetViewModelScale(flScale)
+        local pLocalPlayer = entities.GetLocalPlayer()
+        if not pLocalPlayer or not pLocalPlayer:IsAlive() then
+            return
+        end
+
+        local pLocalEntity = fnGetClientEntity(IGameEntitySystem, pLocalPlayer:GetIndex())
+        if pLocalEntity == NULLPTR then
+            return
+        end
+
+        local pViewModelServices = ffi.cast("uintptr_t*", ffi.cast("uintptr_t", pLocalEntity) + 0x12B8)[0]
+        if pViewModelServices == 0 then
+            return
+        end
+
+        local hViewModel = ffi.cast("uint32_t*", pViewModelServices + 0x40)[0]
+        if hViewModel == 0xFFFFFFFF then
+            return
+        end
+
+        local pViewModel = fnGetClientEntity(IGameEntitySystem, bit.band(hViewModel, 0x7FFF))
+        if pViewModel == NULLPTR then
+            return
+        end
+
+        local pGameSceneNode = ffi.cast("uintptr_t*", ffi.cast("uintptr_t", pViewModel) + 0x308)[0]
+        if pGameSceneNode == 0 then
+            return
+        end
+
+        ffi.cast("float*", pGameSceneNode + 0xCC)[0] = flScale
     end
 
     local function Thread(nTheardID)
@@ -327,6 +359,7 @@ xpcall(function()
         assert(type(pDetour) == "function", "custom viewmodel error: invalid detour function")
         assert(type(pTarget) == "cdata" or type(pTarget) == "number" or type(pTarget) == "function", "custom viewmodel error: invalid target function")
         if not SuspendThreads() then
+            ResumeThreads()
             print("custom viewmodel error: failed suspend threads")
             return false
         end
@@ -420,30 +453,13 @@ xpcall(function()
         return __Object
     end
 
-    CreateHook(fnGetMatrixForView, function(pObject, pRenderGameSystem, pViewSetup, pOutWorldToView, pOutViewToProjection, pOutWorldToProjection, pOutWorldToPixels)
-        if pCustomFov:GetValue() then
-            local flViewFov = pViewFov:GetValue()
-            local flViewModelFov = pViewModelFov:GetValue()
-            pViewSetup.flFov = flViewFov == 90 and pViewSetup.flFov or flViewFov
-            pViewSetup.flFovViewmodel = flViewModelFov == 90 and pViewSetup.flFovViewmodel or flViewModelFov
+    CreateHook(fnCalcViewModelShake, function(pObject, pRcx, pArg2, pArg3, pArg4)
+        if pRemoveViewModelShake:GetValue() then
+            return
         end
 
-        if pCustomAspectRatio:GetValue() then
-            if not bBackupAspectRatio then
-                bBackupAspectRatio = true
-                flBackupAspectRatio = pViewSetup.flAspectRatio
-            end
-
-            pViewSetup.nFlags = bit.bor(pViewSetup.nFlags, 2)
-            pViewSetup.flAspectRatio = pAspectRatio:GetValue()
-        elseif bBackupAspectRatio then
-            bBackupAspectRatio = false
-            pViewSetup.flAspectRatio = flBackupAspectRatio
-            pViewSetup.nFlags = bit.bor(pViewSetup.nFlags, 2)
-        end
-
-        return pObject(pRenderGameSystem, pViewSetup, pOutWorldToView, pOutViewToProjection, pOutWorldToProjection, pOutWorldToPixels)
-    end, "void(__fastcall*)(void*, struct CViewSetup*, void*, void*, void*, void*)")
+        return pObject(pRcx, pArg2, pArg3, pArg4)
+    end, "void(__fastcall*)(void*, void*, void*, void*)")
 
     CreateHook(fnOverrideView, function(pObject, pClientMode, pViewSetup)
         local pResult = pObject(pClientMode, pViewSetup)
@@ -459,34 +475,43 @@ xpcall(function()
     CreateHook(fnGetViewModel, function(pObject, pRcx, vecOffset, pFov)
         local pResult = pObject(pRcx, vecOffset, pFov)
         if pCustomViewModel:GetValue() then
+            bStoredViewModelScale = true
             vecOffset[0] = pViewModelX:GetValue() / 10
             vecOffset[1] = pViewModelY:GetValue() / 10
             vecOffset[2] = pViewModelZ:GetValue() / 10
+            SetViewModelScale(pViewModelScale:GetValue())
+        elseif bStoredViewModelScale then
+            SetViewModelScale(1)
+            bStoredViewModelScale = false
         end
 
         return pResult
     end, "void*(__fastcall*)(void*, float*, float*)")
 
---[[ 未使用 IViewRender::vftable index 3
-    CreateHook(fnRenderStart, function(pObject, pViewRender)
-        local pResult = pObject(pViewRender)
-        if pCustomAspectRatio:GetValue() then
-            if not bBackupAspectRatio then
-                bBackupAspectRatio = true
-                flBackupAspectRatio = pViewRender.View.flAspectRatio
-            end
-
-            pViewRender.View.flAspectRatio = pAspectRatio:GetValue()
-            pViewRender.View.nFlags = bit.bor(pViewRender.View.nFlags, 2)
-        elseif bBackupAspectRatio then
-            bBackupAspectRatio = false
-            pViewRender.View.flAspectRatio = flBackupAspectRatio
-            pViewRender.View.nFlags = bit.bor(pViewRender.View.nFlags, 2)
+    CreateHook(fnGetMatrixForView, function(pObject, pRenderGameSystem, pViewSetup, pOutWorldToView, pOutViewToProjection, pOutWorldToProjection, pOutWorldToPixels)
+        if pCustomFov:GetValue() then
+            local flViewFov = pViewFov:GetValue()
+            local flViewModelFov = pViewModelFov:GetValue()
+            pViewSetup.flFov = flViewFov == 90 and pViewSetup.flFov or flViewFov
+            pViewSetup.flFovViewmodel = flViewModelFov == 90 and pViewSetup.flFovViewmodel or flViewModelFov
         end
 
-        return pResult
-    end, "void*(__fastcall*)(struct CViewRender*)")
-]]
+        if pCustomAspectRatio:GetValue() then
+            if not bStoredAspectRatio then
+                bStoredAspectRatio = true
+                flBackupAspectRatio = pViewSetup.flAspectRatio
+            end
+
+            pViewSetup.nFlags = bit.bor(pViewSetup.nFlags, 2)
+            pViewSetup.flAspectRatio = pAspectRatio:GetValue()
+        elseif bStoredAspectRatio then
+            bStoredAspectRatio = false
+            pViewSetup.flAspectRatio = flBackupAspectRatio
+            pViewSetup.nFlags = bit.bor(pViewSetup.nFlags, 2)
+        end
+
+        return pObject(pRenderGameSystem, pViewSetup, pOutWorldToView, pOutViewToProjection, pOutWorldToProjection, pOutWorldToPixels)
+    end, "void(__fastcall*)(void*, struct CViewSetup*, void*, void*, void*, void*)")
 
     callbacks.Register("Draw", function()
         local pLocalPlayer = entities.GetLocalPlayer()
@@ -500,6 +525,7 @@ xpcall(function()
         pCameraVertical:SetInvisible(not pSmoothCamera:GetValue())
         pCameraHorizontal:SetInvisible(not pSmoothCamera:GetValue())
         pAspectRatio:SetInvisible(not pCustomAspectRatio:GetValue())
+        pViewModelScale:SetInvisible(not pCustomViewModel:GetValue())
         if not pLocalPlayer or not pLocalPlayer:IsAlive() or not pSmoothCamera:GetValue() then
             bSetup = false
             return
@@ -519,7 +545,17 @@ xpcall(function()
         end
 
         local flFraction = TraceLine(vecEyePosition, vecEyePosition + vecDelta, function(nEntIndex)
-            return nEntIndex > 0 and nEntIndex <= 64
+            if nEntIndex > 0 and nEntIndex <= 64 then
+                return true
+            end
+
+            local pEntity = entities.GetByIndex(nEntIndex)
+            if pEntity then
+                local szClassName = pEntity:GetClass()
+                return szClassName == "C_CSPlayerPawn"
+            end
+
+            return false
         end, 64)
 
         vecCameraPosition = vecCameraPosition + ((vecEyePosition + vecDelta * (flFraction * 0.8)) - vecCameraPosition) * (flSlack * 0.001)
@@ -527,10 +563,10 @@ xpcall(function()
 
     callbacks.Register("Unload", function()
         for _, pObject in pairs(arrHooks) do
-            pObject:Remove()  
+            pObject:Remove()
         end
 
-        if bBackupAspectRatio then
+        if bStoredAspectRatio then
             IViewRender.View.flAspectRatio = flBackupAspectRatio
             IViewRender.View.nFlags = bit.bor(IViewRender.View.nFlags, 2)
         end
