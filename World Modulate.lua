@@ -29,11 +29,14 @@ xpcall(function()
     local szLastMapName = ""
     local bUpdateWorld = false
     local bStoredWorld = false
+    local bUpdateLights = false
     local clrWorldModulation = {}
     local bUpdateMaterials = false
+    local bUpdateRemoveLights = false
     local NULLPTR = ffi.cast("void*", 0)
 
     local pSettingsReference = gui.Reference("Visuals", "Other", "Effects")
+    local pRemoveLights = gui.Checkbox(pSettingsReference, "__RemoveLights", "Remove Lights", false)
     local pWorldModulate = gui.Checkbox(pSettingsReference, "__WorldModulate", "World Modulate", false)
     local pWorldColor = gui.ColorPicker(pSettingsReference, "__WorldModulateColor", "World Color", 255, 255, 255, 255)
 
@@ -184,6 +187,7 @@ xpcall(function()
 
     EnumerateMaterials()
     callbacks.Register("Draw", function()
+        local bRemoveLights = pRemoveLights:GetValue()
         local pLocalPlayer = entities.GetLocalPlayer()
         local bOverrideWorld = pWorldModulate:GetValue()
         pWorldColor:SetInvisible(not bOverrideWorld)
@@ -198,16 +202,22 @@ xpcall(function()
         end
 
         if szLastMapName ~= szMapName then
+            EnumerateMaterials()
             bUpdateMaterials = true
             szLastMapName = szMapName
             return
         end
 
         if bUpdateMaterials then
-            bUpdateWorld = true
-            EnumerateMaterials()
+            bUpdateLights = true
             bUpdateMaterials = false
             return
+        end
+
+        if bUpdateLights or bUpdateRemoveLights ~= bRemoveLights then
+            bUpdateLights = false
+            bUpdateRemoveLights = bRemoveLights
+            client.SetConVar("lb_enable_lights", not bRemoveLights)
         end
 
         local clrWorld = { pWorldColor:GetValue() }
@@ -233,6 +243,7 @@ xpcall(function()
     end)
 
     callbacks.Register("Unload", function()
+        client.SetConVar("lb_enable_lights", true)
         for _, pMaterial in pairs(arrMaterials) do
             pMaterial:Reset()
         end
