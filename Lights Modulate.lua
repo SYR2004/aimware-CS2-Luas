@@ -35,7 +35,9 @@ xpcall(function()
     local pSettingsReference = gui.Reference("Visuals", "Other", "Effects")
     local pLightsModulate = gui.Checkbox(pSettingsReference, "__LightsModulate", "Lights Modulate", false)
     local pLightsColor = gui.ColorPicker(pSettingsReference, "__LightsModulateColor", "Lights Color", 255, 255, 255, 255)
+    local pLightsScale = gui.Slider(pSettingsReference, "__LightsModulateScale", "Lights Modulate Scale", 1, 0, 10, 0.01)
 
+    pLightsScale:SetDescription("you want more brightness ?, try a higher scale, like 5 - 10")
     local fnSetupLights = assert(mem.FindPattern("scenesystem.dll", "8B 02 89 01 F2 0F 10 42 04 F2 0F 11 41 04 8B 42"), "lights modulate error: outdated signature")
     local function Thread(nTheardID)
         local hThread = ffi.C.OpenThread(0x0002, 0, nTheardID)
@@ -246,19 +248,20 @@ xpcall(function()
     CreateHook(fnSetupLights, function(pObject, pRcx, pArg2)
         pObject(pRcx, pArg2)
         if pLightsModulate:GetValue() then
+            local flScale = pLightsScale:GetValue()
             local clrModulate = { pLightsColor:GetValue() }
             local flModulateAlphaScale = clrModulate[4] / 255
             local pColor = ffi.cast("float*", ffi.cast("uintptr_t", pRcx) + 0x4)
             for nIndex = 0, 2 do
                 local flFactor = clrModulate[nIndex + 1] / 255
-                pColor[nIndex] = (flFactor * 1.4209603071213) * flModulateAlphaScale
+                pColor[nIndex] = (flFactor * flScale) * flModulateAlphaScale
             end
         end
 
     end, "void(__fastcall*)(void*, void*)")
 
-    callbacks.Register("Draw", function() pLightsColor:SetInvisible(not pLightsModulate:GetValue()) end)
     callbacks.Register("Unload", function() for _, pObject in pairs(arrHooks) do pObject:Remove() end end)
+    callbacks.Register("Draw", function() pLightsColor:SetInvisible(not pLightsModulate:GetValue()) pLightsScale:SetInvisible(not pLightsModulate:GetValue()) end)
 end, function(...)
     print(("[Lights Modulate]: initialize error -> %s"):format(...))
 end)
